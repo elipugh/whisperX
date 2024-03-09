@@ -183,13 +183,19 @@ class FasterWhisperPipeline(Pipeline):
                 # print(f2-f1)
                 yield {'inputs': audio[f1:f2]}
 
-        vad_segments = self.vad_model({"waveform": torch.from_numpy(audio).unsqueeze(0), "sample_rate": SAMPLE_RATE})
-        vad_segments = merge_chunks(
-            vad_segments,
-            chunk_size,
-            onset=self._vad_params["vad_onset"],
-            offset=self._vad_params["vad_offset"],
-        )
+        all_vad_segments = []
+        if audio.ndim == 1:
+            audio = audio.unsqueeze(0)
+        for aud in audio:
+            vad_segments = self.vad_model({"waveform": aud.unsqueeze(0), "sample_rate": SAMPLE_RATE})
+            vad_segments = merge_chunks(
+                vad_segments,
+                chunk_size,
+                onset=self._vad_params["vad_onset"],
+                offset=self._vad_params["vad_offset"],
+            )
+            all_vad_segments.append(vad_segments)
+        
         if self.tokenizer is None:
             language = language or self.detect_language(audio)
             task = task or "transcribe"
@@ -214,8 +220,15 @@ class FasterWhisperPipeline(Pipeline):
 
         segments: List[SingleSegment] = []
         batch_size = batch_size or self._batch_size
-        total_segments = len(vad_segments)
-        for idx, out in enumerate(self.__call__(data(audio, vad_segments), batch_size=batch_size, num_workers=num_workers)):
+        flat_vad_segments = [e for l in all_vad_segments for e in l]
+        total_segments = sum([len(e) for e in flat_vad_segments])
+
+        def data_wrapper(audio, segments):
+            for aud, seg in zip(audio, segments):
+                for e in data(aud, seg):
+                    yield e
+
+        for idx, out in enumerate(self.__call__(data_wrapper(audio, all_vad_segments), batch_size=batch_size, num_workers=num_workers)):
             if print_progress:
                 base_progress = ((idx + 1) / total_segments) * 100
                 percent_complete = base_progress / 2 if combined_progress else base_progress
@@ -226,10 +239,17 @@ class FasterWhisperPipeline(Pipeline):
             segments.append(
                 {
                     "text": text,
-                    "start": round(vad_segments[idx]['start'], 3),
-                    "end": round(vad_segments[idx]['end'], 3)
+                    "start": round(flat_vad_segments[idx]['start'], 3),
+                    "end": round(flat_vad_segments[idx]['end'], 3)
                 }
             )
+
+        lens = [len(segs) for segs in all_vad_segments]
+        reorg_segments = []
+        cumulative = 0
+        for l in lens:
+            reorg_segments += [segments[cumulative:cumulative+l]]
+            cumulative += l
 
         # revert the tokenizer if multilingual inference is enabled
         if self.preset_language is None:
@@ -239,7 +259,7 @@ class FasterWhisperPipeline(Pipeline):
         if self.suppress_numerals:
             self.options = self.options._replace(suppress_tokens=previous_suppress_tokens)
 
-        return {"segments": segments, "language": language}
+        return [{"segments": segs, "language": language} for segs in reorg_segments]
 
 
     def detect_language(self, audio: np.ndarray):
