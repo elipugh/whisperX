@@ -171,7 +171,7 @@ class FasterWhisperPipeline(Pipeline):
         return final_iterator
 
     def transcribe(
-        self, audio: Union[str, np.ndarray], batch_size=None, num_workers=0, language=None, task=None, chunk_size=30, print_progress = False, combined_progress=False
+        self, audio: Union[str, np.ndarray], audio_lens=None, batch_size=None, num_workers=0, language=None, task=None, chunk_size=30, print_progress = False, combined_progress=False
     ) -> TranscriptionResult:
         if isinstance(audio, str):
             audio = load_audio(audio)
@@ -186,8 +186,10 @@ class FasterWhisperPipeline(Pipeline):
         all_vad_segments = []
         if audio.ndim == 1:
             audio = audio.unsqueeze(0)
-        for aud in audio:
-            vad_segments = self.vad_model({"waveform": aud.unsqueeze(0), "sample_rate": SAMPLE_RATE})
+        if audio_lens is None:
+            audio_lens = [audio.shape[1]]
+        for i, aud in enumerate(audio):
+            vad_segments = self.vad_model({"waveform": aud[:audio_lens[i]].unsqueeze(0), "sample_rate": SAMPLE_RATE})
             vad_segments = merge_chunks(
                 vad_segments,
                 chunk_size,

@@ -7,12 +7,12 @@ from setuptools import find_packages, setup
 setup(
     name="whisperx",
     py_modules=["whisperx"],
-    version="3.1.1",
+    version="3.1.1_eli",
     description="Time-Accurate Automatic Speech Recognition using Whisper.",
     readme="README.md",
     python_requires=">=3.8",
     author="Max Bain",
-    url="https://github.com/m-bain/whisperx",
+    url="https://github.com/elipugh/whisperx",
     license="MIT",
     packages=find_packages(exclude=["tests*"]),
     install_requires=[
