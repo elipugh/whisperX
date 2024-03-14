@@ -181,7 +181,7 @@ class FasterWhisperPipeline(Pipeline):
                 f1 = int(seg['start'] * SAMPLE_RATE)
                 f2 = int(seg['end'] * SAMPLE_RATE)
                 # print(f2-f1)
-                yield {'inputs': audio[f1:f2]}
+                yield {'inputs': audio[f1:f2], "input_length":f2-f1}
 
         all_vad_segments = []
         if audio.ndim == 1:
@@ -223,7 +223,9 @@ class FasterWhisperPipeline(Pipeline):
         segments: List[SingleSegment] = []
         batch_size = batch_size or self._batch_size
         flat_vad_segments = [e for l in all_vad_segments for e in l]
-        total_segments = sum([len(e) for e in flat_vad_segments])
+        total_segments = len(flat_vad_segments)
+        idxs = np.argsort([x["end"]-x["start"] for x in flat_vad_segments])
+        flat_vad_segments = [flat_vad_segments[idx] for idx in idxs]
 
         def data_wrapper(audio, segments):
             for aud, seg in zip(audio, segments):
@@ -247,6 +249,7 @@ class FasterWhisperPipeline(Pipeline):
             )
 
         lens = [len(segs) for segs in all_vad_segments]
+        segments = [segments[idx] for idx in np.argsort(idxs)]
         reorg_segments = []
         cumulative = 0
         for l in lens:
