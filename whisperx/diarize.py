@@ -34,6 +34,21 @@ class DiarizationPipeline:
         return diarize_df
 
 
+def get_nearest_boundaries(seg_words, idx):
+    start, end = None, None
+    for i in range(idx, len(seg_words)):
+        if seg_words[i]["start"] is not None:
+            end = seg_words[i]["start"]
+            break
+    for i in range(idx - 1, -1, -1):
+        if seg_words[i]["end"] is not None:
+            start = seg_words[i]["end"]
+            break
+    if start is None or end is None:
+        return None, None
+    return start, end
+
+
 def assign_word_speakers(diarize_df, transcript_result, fill_nearest=False):
     transcript_segments = transcript_result["segments"]
     for seg in transcript_segments:
@@ -49,11 +64,18 @@ def assign_word_speakers(diarize_df, transcript_result, fill_nearest=False):
             # sum over speakers
             speaker = dia_tmp.groupby("speaker")["intersection"].sum().sort_values(ascending=False).index[0]
             seg["speaker"] = speaker
-        
+
         # assign speaker to words
         if 'words' in seg:
-            for word in seg['words']:
+            for i, word in enumerate(seg['words']):
                 if 'start' in word:
+                    if word["start"] is None:
+                        start, end = get_nearest_boundaries(seg["words"], i)
+                        word["start"], word["end"] = start, end
+                        if start is None:
+                            word["speaker"] = None
+                            continue
+
                     diarize_df['intersection'] = np.minimum(diarize_df['end'], word['end']) - np.maximum(diarize_df['start'], word['start'])
                     diarize_df['union'] = np.maximum(diarize_df['end'], word['end']) - np.minimum(diarize_df['start'], word['start'])
                     # remove no hit
@@ -66,7 +88,7 @@ def assign_word_speakers(diarize_df, transcript_result, fill_nearest=False):
                         speaker = dia_tmp.groupby("speaker")["intersection"].sum().sort_values(ascending=False).index[0]
                         word["speaker"] = speaker
         
-    return transcript_result            
+    return transcript_result
 
 
 class Segment:
